@@ -1,64 +1,152 @@
-import React, { useRef, useState } from 'react';
-import { useDispatch } from 'react-redux';
+import { mailActions } from '../store/mail-slice';
 
-import { Editor } from 'react-draft-wysiwyg';
-import { EditorState } from 'draft-js';
-import 'react-draft-wysiwyg/dist/react-draft-wysiwyg.css';
+// adding mail
+export const addMail = (mail, clearInput) => {
+  const senderEmail = mail.from.replace('@', '').replace('.', '');
+  const receiverEmail = mail.to.replace('@', '').replace('.', '');
+  return async (dispatch) => {
+    try {
+      const response = await fetch(
+        `https://mail-box-client-88922-default-rtdb.firebaseio.com/${senderEmail}.json`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ ...mail, read: true }),
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        }
+      );
 
-import classes from './Compose.module.css';
-import { addMail } from '../store/mail-actions';
+      if (senderEmail !== receiverEmail) {
+        await fetch(
+          `https://mail-box-client-88922-default-rtdb.firebaseio.com/${receiverEmail}.json`,
+          {
+            method: 'POST',
+            body: JSON.stringify({ ...mail, read: false }),
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          }
+        );
+      }
 
-const Compose = () => {
-  const dispatch = useDispatch();
-  const emailRef = useRef();
-  const titleRef = useRef();
-  const [editorState, setEditorState] = useState(() =>
-    EditorState.createEmpty()
-  );
+      const data = await response.json();
 
-  const handleEditorChange = (editorState) => {
-    setEditorState(editorState);
+      if (response.ok) {
+        dispatch(
+          mailActions.add({
+            id: data.name,
+            ...mail,
+            read: true,
+          })
+        );
+        clearInput();
+      } else {
+        throw data.error;
+      }
+    } catch (error) {
+      console.log(error.message);
+    }
   };
-
-  const clearInputFields = () => {
-    emailRef.current.value = '';
-    titleRef.current.value = '';
-    setEditorState(null);
-  };
-
-  const sendMailHandler = async (event) => {
-    event.preventDefault();
-    const mailData = {
-      from: JSON.parse(localStorage.getItem('idToken')).email,
-      to: emailRef.current.value,
-      title: titleRef.current.value,
-      text: editorState.getCurrentContent().getPlainText(),
-    };
-    dispatch(addMail(mailData, clearInputFields));
-  };
-
-  return (
-    <form className={classes.form} onSubmit={sendMailHandler}>
-      <div className={classes.to}>
-        <label>To : </label>
-        <input type='email' ref={emailRef} required />
-      </div>
-      <div className={classes.title}>
-        <label>Title : </label>
-        <input type='text' ref={titleRef} required />
-      </div>
-      <Editor
-        editorState={editorState}
-        onEditorStateChange={handleEditorChange}
-        wrapperClassName={classes['wrapper-class']}
-        editorClassName={classes['editor-class']}
-        toolbarClassName={classes['toolbar-class']}
-      />
-      <div className={classes.button}>
-        <button type='submit'>Send</button>
-      </div>
-    </form>
-  );
 };
 
-export default Compose;=
+//replacing mail on refresh
+export const replaceMail = (emailUrl, loggedUserEmail) => {
+  return async (dispatch) => {
+    try {
+      const response = await fetch(
+        `https://mail-box-client-88922-default-rtdb.firebaseio.com/${emailUrl}.json`
+      );
+
+      const data = await response.json();
+
+      if (response.ok) {
+        let mailData = [];
+        let unreadMessageCount = 0;
+
+        for (let key in data) {
+          mailData = [{ id: key, ...data[key] }, ...mailData];
+          if (data[key].to === loggedUserEmail && data[key].read === false) {
+            unreadMessageCount++;
+          }
+        }
+
+        dispatch(
+          mailActions.replace({
+            mailData: mailData,
+            unreadMessageCount: unreadMessageCount,
+          })
+        );
+      } else {
+        throw data.error;
+      }
+    } catch (error) {
+      console.log(error.message);
+    }
+  };
+};
+
+// deleting mail
+export const deleteMail = (mail) => {
+  const userEmail = JSON.parse(localStorage.getItem('idToken')).email;
+  const emailUrl = userEmail.replace('@', '').replace('.', '');
+
+  return async (dispatch) => {
+    try {
+      const response = await fetch(
+        `https://mail-box-client-88922-default-rtdb.firebaseio.com/${emailUrl}/${mail.id}.json`,
+        {
+          method: 'DELETE',
+        }
+      );
+
+      const data = await response.json();
+
+      if (response.ok) {
+        dispatch(mailActions.remove(mail));
+      } else {
+        throw data.error;
+      }
+    } catch (error) {
+      console.log(error.message);
+    }
+  };
+};
+
+// updating mail
+export const updateMail = (emailUrl, loggedUserEmail, currentMailData) => {
+  return async (dispatch) => {
+    try {
+      const response = await fetch(
+        `https://mail-box-client-88922-default-rtdb.firebaseio.com/${emailUrl}.json`
+      );
+
+      const data = await response.json();
+
+      if (response.ok) {
+        if (data.length > currentMailData.length) {
+          let mailData = [];
+          let unreadMessageCount = 0;
+
+          for (let key in data) {
+            mailData = [{ id: key, ...data[key] }, ...mailData];
+            if (data[key].to === loggedUserEmail && data[key].read === false) {
+              unreadMessageCount++;
+            }
+          }
+
+          dispatch(
+            mailActions.replace({
+              mailData: mailData,
+              unreadMessageCount: unreadMessageCount,
+            })
+          );
+        }
+      } else {
+        throw data.error;
+      }
+    } catch (error) {
+      console.log(error.message);
+    }
+  };
+};
